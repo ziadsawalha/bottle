@@ -1707,6 +1707,7 @@ class HTTPError(HTTPResponse):
     default_status = 500
     def __init__(self, status=None, body=None, exception=None, traceback=None,
                  **options):
+        self.exc_info = sys.exc_info()
         self.exception = exception
         self.traceback = traceback
         super(HTTPError, self).__init__(body, status, **options)
