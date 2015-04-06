@@ -3014,13 +3014,12 @@ class EventletServer(ServerAdapter):
           openssl x509 -req -days 365 -in server.csr -signkey test.key -out test.crt
 
           bottle.run(server='eventlet', keyfile='test.key', certfile='test.crt')
+
     """
 
-    def run(self, handler):
-        from eventlet import wsgi, listen, patcher, wrap_ssl
-        if not patcher.is_monkey_patched(os):
-            msg = "Bottle requires eventlet.monkey_patch() (before import)"
-            raise RuntimeError(msg)
+    def get_socket(self):
+        from eventlet import listen, wrap_ssl
+
         # Separate out socket.listen arguments
         socket_args = {}
         for arg in ('backlog', 'family'):
@@ -3037,6 +3036,22 @@ class EventletServer(ServerAdapter):
                 ssl_args[arg] = self.options.pop(arg)
             except KeyError:
                 pass
+        address = (self.host, self.port)
+        try:
+            sock = listen(address, **socket_args)
+        except TypeError:
+            # Fallback, if we have old version of eventlet
+            sock = listen(address)
+        if ssl_args:
+            sock = wrap_ssl(sock, **ssl_args)
+        return sock
+
+    def run(self, handler):
+        from eventlet import wsgi, patcher
+        if not patcher.is_monkey_patched(os):
+            msg = "Bottle requires eventlet.monkey_patch() (before import)"
+            raise RuntimeError(msg)
+
         # Separate out wsgi.server arguments
         wsgi_args = {}
         for arg in ('log', 'environ', 'max_size', 'max_http_version',
@@ -3050,20 +3065,9 @@ class EventletServer(ServerAdapter):
                 pass
         if 'log_output' not in wsgi_args:
             wsgi_args['log_output'] = not self.quiet
-        address = (self.host, self.port)
-        try:
-            if ssl_args:
-                sock = wrap_ssl(listen(address, **socket_args), **ssl_args)
-            else:
-                sock = listen(address, **socket_args)
-            wsgi.server(sock, handler, **wsgi_args)
-        except TypeError:
-            # Fallback, if we have old version of eventlet
-            if ssl_args:
-                sock = wrap_ssl(listen(address), **ssl_args)
-            else:
-                sock = listen(address)
-            wsgi.server(sock, handler, **wsgi_args)
+
+        sock = self.options.pop('shared_socket', None) or self.get_socket()
+        wsgi.server(sock, handler, **wsgi_args)
 
 
 class RocketServer(ServerAdapter):
@@ -3084,7 +3088,7 @@ class BjoernServer(ServerAdapter):
 
 
 class AiohttpServer(ServerAdapter):
-    """ Untested. 
+    """ Untested.
         aiohttp
         https://pypi.python.org/pypi/aiohttp/
     """
